@@ -1,0 +1,516 @@
+---
+title: "Crescas, Cole Practicum 1 CS 5200 Summer21"
+author: "Cole Crescas"
+date: "6/21/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE}
+library(RSQLite)
+library(ggplot2)
+library(tidyverse)
+library(RMySQL)
+library(DBI)
+```
+
+```{r}
+fn = "/Users/colecrescas/Downloads/BirdStrikesData.csv"
+
+df <- read.csv(file = fn, header = T, stringsAsFactors = F, na.strings=c("","NA"))
+```
+
+```{r}
+df$Is.Aircraft.Large. <- ifelse(df$Is.Aircraft.Large.=="Yes",1,0)
+df$Pilot.warned.of.birds.or.wildlife. <-
+  ifelse(df$Pilot.warned.of.birds.or.wildlife.=="Y",1,0)
+df$Remains.of.wildlife.collected. <-
+  ifelse(df$Remains.of.wildlife.collected.==TRUE, 1, 0)
+df$Remains.of.wildlife.sent.to.Smithsonian <-
+  ifelse(df$Remains.of.wildlife.sent.to.Smithsonian==TRUE, 1, 0)
+df$Effect..Indicated.Damage <- 
+  ifelse(df$Effect..Indicated.Damage=="Caused damage",1,0 )
+df$FlightDate <- gsub(x=df$FlightDate,pattern=" 0:00",replacement="",fixed=T)
+df$FlightDate <- as.Date(df$FlightDate, format = "%m/%d/%Y")
+
+df <- df %>% drop_na(Aircraft..Type) 
+
+df$Aircraft..Number.of.engines. <- 
+  df$Aircraft..Number.of.engines. %>% replace_na("NA")
+
+#sapply(df, function(x) sum(is.na(x)))
+```
+
+```{r}
+df <- df %>% rename(
+  Record_id = Record.ID,
+  Aircraft_type = Aircraft..Type,
+  Airport_name = Airport..Name,
+  Altitude_bin = Altitude.bin,
+  Aircraft_make_model = Aircraft..Make.Model,
+  Wild_num_struck = Wildlife..Number.struck,
+  Wild_num_struck_actual = Wildlife..Number.Struck.Actual,
+  Impact_to_flight = Effect..Impact.to.flight,
+  Origin_state = Origin.State,
+  Indicated_damage = Effect..Indicated.Damage,
+  Aircraft_num_engines = Aircraft..Number.of.engines.,
+  Airline = Aircraft..Airline.Operator,
+  Phase = When..Phase.of.flight,
+  Precipitation = Conditions..Precipitation,
+  Remains_collected = Remains.of.wildlife.collected.,
+  Remains_sent = Remains.of.wildlife.sent.to.Smithsonian,
+  Wild_size = Wildlife..Size,
+  Sky = Conditions..Sky,
+  Wild_species = Wildlife..Species,
+  Pilot_warned = Pilot.warned.of.birds.or.wildlife.,
+  Cost = Cost..Total..,
+  Feet_above_ground = Feet.above.ground,
+  Num_injured = Number.of.people.injured,
+  Aircraft_large = Is.Aircraft.Large.
+)
+```
+
+```{r}
+db_user <- 'root' 
+db_password <- 'Soccer101!'
+db_name <- 'bird_strikes1'
+db_table <- 'BirdStrikeFact'
+db_host <- 'localhost' # Host 85.10.205.173
+db_port <- 3306
+
+# 3. Read data from db
+mydb <-  dbConnect(MySQL(), user = db_user, password = db_password,
+                dbname = db_name, host = db_host, port = db_port)
+```
+
+```{sql connection=mydb}
+SET GLOBAL local_infile = true;
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS Aircraft (
+	aircraft_id INT PRIMARY KEY,
+	make_model VARCHAR(100) NOT NULL,
+	num_engines INT,
+	large_aircraft_flag INT
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS Airport (
+	airport_id INT PRIMARY KEY,
+	airport_name VARCHAR(100),
+	origin_state VARCHAR(100)
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS Precipitation (
+	precip_condition_id INT PRIMARY KEY,
+	precip_type VARCHAR(100)
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS Sky (
+	sky_id INT PRIMARY KEY,
+	sky_type VARCHAR(100)
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS FlightImpact (
+	flight_impact_id INT PRIMARY KEY,
+	impact_description VARCHAR(100)
+);	
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS AirlineOperator (
+	airline_id INT PRIMARY KEY,
+	airline_name VARCHAR(100) NOT NULL
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS AltitudeBin(
+	alt_bin_id INT PRIMARY KEY,
+	altitude_bin_desc VARCHAR(100)
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS FlightPhase (
+	flight_phase_id INT PRIMARY KEY,
+	flight_phase_desc VARCHAR(100) NOT NULL
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS WildlifeSpecies (
+	wild_species_id INT PRIMARY KEY,
+	species_name VARCHAR(100) NOT NULL
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS WildlifeSize (
+	wildlife_size_id INT PRIMARY KEY,
+	size_description VARCHAR(100)
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS WildlifeNumStruck (
+	wild_num_struck_id INT PRIMARY KEY,
+	wild_num_range VARCHAR(100) NOT NULL
+);
+```
+
+```{sql connection=mydb}
+CREATE TABLE IF NOT EXISTS BirdStikeFact (
+	strike_id INT PRIMARY KEY,
+	record_id INT,
+  FlightDate DATE,
+	altitude INT,
+	damage_caused_flag INT,
+	pilot_warned_flag INT,
+	wildlife_id INT NOT NULL,
+	num_people_injured INT,
+	total_cost DECIMAL,
+	wild_num_struk_actual INT,
+	wild_rmns_collected_flag INT,
+	wild_rmns_sent_flag INT,
+	remarks VARCHAR(500),
+	airline VARCHAR(100),
+	aircraft_id INT NOT NULL,
+	airline_id INT NOT NULL,
+	airport_id INT NOT NULL,
+	alt_bin_id INT NOT NULL,
+	flight_phase_id INT NOT NULL,
+	precip_cond_id INT NOT NULL,
+	sky_cond_id INT NOT NULL,
+	flight_impact_id INT NOT NULL,
+	wild_species_id INT NOT NULL,
+	wildlife_size_id INT NOT NULL,
+	wild_num_struck_id INT NOT NULL
+);
+```
+
+```{r}
+#BirdStike Table
+df.BirdStrikeFacts <- df %>%
+  select(Record_id, Airline, Aircraft_type, FlightDate, Feet_above_ground,
+         Indicated_damage, Pilot_warned, Num_injured, Cost, Wild_num_struck,
+         Wild_num_struck_actual, Remains_collected, Remains_sent, Remarks) %>%
+  add_column(Strike_id = 1, .before = "Record_id")
+```
+
+```{r}
+#Aircraft table
+n.birdstrike <- nrow(df)
+
+df.aircraft <- df %>% select(Aircraft_make_model, Aircraft_num_engines, Aircraft_large) %>%
+  distinct(Aircraft_make_model, .keep_all = TRUE) %>%
+  add_column(aircraft_id = 1, .before = "Aircraft_make_model")
+
+n.aircraft <- nrow(df.aircraft)
+df.aircraft[,1] <- seq(1, n.aircraft)
+
+dbWriteTable(mydb, name = "Aircraft",  
+             value = df.aircraft, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#Airport table
+df.airport <- df %>% select(Airport_name, Origin_state) %>%
+  distinct(Airport_name, .keep_all = TRUE) %>%
+  add_column(airport_id = 1, .before = "Airport_name")
+
+n.airport <- nrow(df.airport)
+df.airport[,1] <- seq(1, n.airport)
+
+dbWriteTable(mydb, name = "Airport",  
+             value = df.airport, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#Precipitation table
+df.precipitation <- df %>% distinct(Precipitation) %>%
+  add_column(precip_condition_id = 1, .before = "Precipitation")
+
+n.precipitation <- nrow(df.precipitation)
+df.precipitation[,1] <- seq(1, n.precipitation)
+
+dbWriteTable(mydb, name = "Precipitation",  
+             value = df.precipitation, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#Sky table
+df.sky <- df %>% distinct(Sky) %>%
+  add_column(sky_id = 1, .before = "Sky")
+
+n.sky <- nrow(df.sky)
+df.sky[,1] <- seq(1, n.sky)
+
+dbWriteTable(mydb, name = "Sky",  
+             value = df.sky, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#FlightImpact table
+df.flight_impact <- df %>% distinct(Impact_to_flight) %>%
+  add_column(flight_impact_id = 1, .before = "Impact_to_flight")
+
+n.flight_impact <- nrow(df.flight_impact)
+df.flight_impact[,1] <- seq(1, n.flight_impact)
+
+dbWriteTable(mydb, name = "FlightImpact",  
+             value = df.flight_impact, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#AirlineOperator table
+df.airline_operator <- df %>% distinct(Airline) %>%
+  add_column(airline_id = 1, .before = "Airline")
+
+n.airline_operator <- nrow(df.airline_operator)
+df.airline_operator[,1] <- seq(1, n.airline_operator)
+
+dbWriteTable(mydb, name = "Airline",  
+             value = df.airline_operator, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#AiltitudeBin table
+df.altitude_bin <- df %>% distinct(Altitude_bin) %>%
+  add_column(alt_bin_id = 1, .before = "Altitude_bin")
+
+n.altitude_bin <- nrow(df.altitude_bin)
+df.altitude_bin[,1] <- seq(1, n.altitude_bin)
+
+dbWriteTable(mydb, name = "AltitudeBin",  
+             value = df.altitude_bin, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#FlightPhase table
+df.FlightPhase <- df %>% distinct(Phase) %>%
+  add_column(flight_phase_id = 1, .before = "Phase")
+
+n.FlightPhase <- nrow(df.FlightPhase)
+df.FlightPhase[,1] <- seq(1, n.FlightPhase)
+
+dbWriteTable(mydb, name = "FlightPhase",  
+             value = df.FlightPhase, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#Wildlife Species table
+df.wild_species <- df %>% distinct(Wild_species) %>%
+  add_column(wild_species_id = 1, .before = "Wild_species")
+
+n.wild_species <- nrow(df.wild_species)
+df.wild_species[,1] <- seq(1, n.wild_species)
+
+dbWriteTable(mydb, name = "Wildlife_Species",  
+             value = df.wild_species, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#Wildlife Size table
+df.wild_size <- df %>% distinct(Wild_size) %>%
+  add_column(wild_size_id = 1, .before = "Wild_size")
+
+n.wild_size <- nrow(df.wild_size)
+df.wild_size[,1] <- seq(1, n.wild_size)
+
+dbWriteTable(mydb, name = "Wildlife_Size",  
+             value = df.wild_size, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#Wildlife Num Struck table
+df.wild_num_struck <- df %>% distinct(Wild_num_struck) %>%
+  add_column(Wild_num_struck_id = 1, .before = "Wild_num_struck")
+
+n.wild_num_struck <- nrow(df.wild_num_struck)
+df.wild_num_struck[,1] <- seq(1, n.wild_num_struck)
+
+dbWriteTable(mydb, name = "Wildlife_Num_Struck",  
+             value = df.wild_num_struck, overwrite = TRUE, row.names=FALSE)
+```
+
+```{r}
+#sapply(df, function(x) sum(is.na(x)))
+
+#Manual checks of aircraft engine numbers 
+df$Aircraft_num_engines[df$Aircraft_make_model == 'C-680'] <- 2
+df$Aircraft_num_engines[df$Aircraft_make_model == 'RKWLTRBO 690'] <- 2
+df$Aircraft_num_engines[df$Aircraft_make_model == 'A-300'] <- 2
+df$Aircraft_num_engines[df$Aircraft_make_model == 'B-747-8 SERIES'] <- 4
+
+```
+
+```{r linkFKs}
+# process each row (flight) one by one
+for (r in 1:n.birdstrike) {
+  # find the airline PK for that flight in the airlines table
+  a <- df.aircraft$aircraft_id[which
+                               (df.aircraft$Aircraft_make_model ==
+                                   df$Aircraft_make_model[r] &
+                                   df.aircraft$Aircraft_num_engines  ==
+                                   df$Aircraft_num_engines[r] &
+                                   df.aircraft$Aircraft_large ==
+                                   df$Aircraft_large[r])]
+  
+  df.BirdStrikeFacts$aircraft_id[r] <- a
+  
+}
+```
+
+```{r}
+for (r in 1:n.birdstrike) {
+  a <- df.airport$airport_id[which
+                             (df.airport$Airport_name == df$Airport_name[r] &
+                                 df.airport$Origin_state  == df$Origin_state[r])] 
+  b <- df.precipitation$precip_condition_id[which
+                                            (df.precipitation$Precipitation ==
+                                                df$Precipitation[r])]
+  c <- df.sky$sky_id[which(df.sky$Sky == df$Sky[r])]
+  d <- df.flight_impact$flight_impact_id[which
+                                         (df.flight_impact$Impact_to_flight ==
+                                             df$Impact_to_flight[r])]
+  
+  df.BirdStrikeFacts$airport_id[r] <- a
+  df.BirdStrikeFacts$precip_cond_id[r] <- b
+  df.BirdStrikeFacts$sky_id[r] <- c
+  df.BirdStrikeFacts$flight_impact_id[r] <- d
+}
+```
+
+```{r}
+for (r in 1:n.birdstrike) {
+  # find the airline PK for that flight in the airlines table
+  e <- df.airline_operator$airline_id[which
+                                      (df.airline_operator$Airline ==
+                                          df$Airline[r])] 
+  f <- df.altitude_bin$alt_bin_id[which
+                                  (df.altitude_bin$Altitude_bin ==
+                                      df$Altitude_bin[r])]
+  g <- df.FlightPhase$flight_phase_id[which(df.FlightPhase$Phase == df$Phase[r])]
+  h <- df.wild_species$wild_species_id[which
+                                       (df.wild_species$Wild_species ==
+                                           df$Wild_species[r])]
+  
+  df.BirdStrikeFacts$airline_id[r] <- e
+  df.BirdStrikeFacts$alt_bin_id[r] <- f
+  df.BirdStrikeFacts$flight_phase_id[r] <- g
+  df.BirdStrikeFacts$wild_species_id[r] <- h
+}
+```
+
+```{r}
+for (r in 1:n.birdstrike) {
+  # find the airline PK for that flight in the airlines table
+  i <- df.wild_size$wild_size_id[which
+                                 (df.wild_size$Wild_size == df$Wild_size[r])] 
+  j <- df.wild_num_struck$Wild_num_struck_id[which
+                                             (df.wild_num_struck$Wild_num_struck
+                                               == df$Wild_num_struck[r])]
+  
+  df.BirdStrikeFacts$wild_size_id[r] <- i
+  df.BirdStrikeFacts$wild_num_struck_id[r] <- j
+}
+```
+
+```{r}
+df.BirdStrikeFacts[,1] <- seq(1, n.birdstrike)
+
+dbWriteTable(mydb, name = "BirdStrikeFacts",  value = df.BirdStrikeFacts,
+             overwrite = TRUE, row.names=FALSE)
+```
+
+```{sql connection=mydb}
+SELECT Airline, COUNT(Strike_id) AS `Incidents(Take off or Climb)` FROM
+BirdStrikeFacts JOIN FlightPhase ON BirdStrikeFacts.flight_phase_id =
+FlightPhase.flight_phase_id WHERE Phase LIKE "%Take-off Run" OR Phase LIKE
+"%Climb" GROUP BY Airline
+```
+
+```{sql connection=mydb}
+SELECT Airport_name, COUNT(BirdStrikeFacts.Strike_id) AS Incidents FROM Airport
+JOIN BirdStrikeFacts ON Airport.airport_id = BirdStrikeFacts.airport_id
+GROUP BY Airport_name ORDER BY Incidents DESC 
+```
+
+```{sql connection=mydb}
+SELECT COUNT(Strike_id) AS Incidents, YEAR(FlightDate) AS year FROM
+BirdStrikeFacts GROUP BY year ORDER BY year DESC
+```
+
+```{r}
+take_off_land <- dbGetQuery(mydb, "SELECT COUNT(Strike_id) AS
+                            `Incidents(Take-off & Climb)`, YEAR(FlightDate) AS
+                            Year FROM BirdStrikeFacts JOIN FlightPhase ON
+                            BirdStrikeFacts.flight_phase_id =
+                            FlightPhase.flight_phase_id WHERE (Phase LIKE
+                            '%Take-off Run' OR Phase LIKE '%Climb') AND
+                            YEAR(FlightDate) BETWEEN 2008 AND 2011 GROUP BY year
+                            ORDER BY year DESC")
+take_off_land
+```
+
+```{r}
+descent_approach_roll <- dbGetQuery(mydb, "SELECT COUNT(Strike_id) AS
+                                    `Incidents(Descent, Approach & Landing)`,
+                                    YEAR(FlightDate) AS Year FROM BirdStrikeFacts
+                                    JOIN FlightPhase ON
+                                    BirdStrikeFacts.flight_phase_id =
+                                    FlightPhase.flight_phase_id WHERE (Phase LIKE
+                                    '%Descent' OR Phase LIKE '%Approach' OR Phase
+                                    LIKE '%Landing Roll') AND YEAR(FlightDate)
+                                    BETWEEN 2008 AND 2011 GROUP BY year ORDER BY year DESC")
+descent_approach_roll
+```
+```{r}
+descent_approach_roll %>% merge(take_off_land, by = "Year") %>%
+  pivot_longer(c(`Incidents(Descent, Approach & Landing)`, 
+                 `Incidents(Take-off & Climb)`), names_to = "Flight_Stage",
+               values_to = "Incidents") %>% 
+  ggplot(mapping = aes(x=`Year`, y=`Incidents`, fill=`Flight_Stage`)) +
+  geom_bar(position ="dodge", stat="identity") + 
+  ggtitle("Bird Strike Incidents vs Year")
+
+
+```
+```{sql connection=mydb}
+DROP PROCEDURE IF EXISTS Delete_record_id;
+```
+
+```{sql connection=mydb}
+CREATE PROCEDURE Delete_record_id(IN r_id INT)
+BEGIN 
+  DELETE FROM BirdStrikeFacts WHERE r_id = Record_id;
+END 
+```
+
+```{sql connection=mydb}
+SELECT Record_id, Airline FROM BirdStrikeFacts LIMIT 5;
+```
+
+```{sql connection=mydb}
+CALL Delete_record_id(208159)
+```
+
+```{sql connection=mydb}
+SELECT Record_id, Airline FROM BirdStrikeFacts LIMIT 5;
+```
+
+```{r disconnectDB}
+dbDisconnect(mydb)
+```
